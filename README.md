@@ -8,13 +8,13 @@ El flujo de trabajo está dividido en dos grandes etapas: el preprocesamiento de
 ## 1. Flujo de Trabajo en Servidor (Preprocesamiento Transcriptómico)
 Ubicados en la carpeta `scripts_servidor/`, estos scripts están diseñados para ejecutarse de manera secuencial en un servidor o cluster (ej. servidor `ada`):
 
-* **01_crear_carpetas.sh**: Construye la estructura de directorios necesaria para almacenar los resultados intermedios y el índice de STAR[cite: 1].
-* **02_fastqc_raw.sh**: Ejecuta el control de calidad inicial sobre las lecturas `.fastq.gz` crudas[cite: 2].
-* **03_Limpieza_fasq.sh**: Realiza el recorte de adaptadores y filtrado por calidad (trimming) utilizando `fastp`[cite: 3].
-* **04_fasqc_postlimpieza.sh**: Verifica la calidad de las lecturas limpias y consolida los reportes utilizando `MultiQC`[cite: 4].
-* **05_indice_star.sh**: Genera el índice del genoma de referencia de *Salmo salar* (GCF_905237065.1_Ssal_v3.1) optimizando el uso de RAM[cite: 5].
-* **06_alineamiento_star.sh**: Alinea las lecturas limpias contra el genoma de referencia, generando archivos BAM ordenados por coordenadas[cite: 6].
-* **07_featurecounts.sh**: Cuantifica la expresión génica a nivel de exón, generando la matriz de conteos final (`matriz_counts_final.txt`) para el análisis en R[cite: 7].
+* **01_crear_carpetas.sh**: Construye la estructura de directorios necesaria para almacenar los resultados intermedios y el índice de STAR.
+* **02_fastqc_raw.sh**: Ejecuta el control de calidad inicial sobre las lecturas `.fastq.gz` crudas.
+* **03_Limpieza_fasq.sh**: Realiza el recorte de adaptadores y filtrado por calidad (trimming) utilizando `fastp`.
+* **04_fasqc_postlimpieza.sh**: Verifica la calidad de las lecturas limpias y consolida los reportes utilizando `MultiQC`.
+* **05_indice_star.sh**: Genera el índice del genoma de referencia de *Salmo salar* (GCF_905237065.1_Ssal_v3.1) optimizando el uso de RAM.
+* **06_alineamiento_star.sh**: Alinea las lecturas limpias contra el genoma de referencia, generando archivos BAM ordenados por coordenadas.
+* **07_featurecounts.sh**: Cuantifica la expresión génica a nivel de exón, generando la matriz de conteos final (`matriz_counts_final.txt`) para el análisis en R.
 
 *(Nota: Para descargar la matriz de conteos al equipo local, se puede utilizar el comando `scp` incluido en los comentarios del script 07).*
 
