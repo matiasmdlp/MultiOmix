@@ -1,0 +1,314 @@
+
+library(readxl)
+
+prot_data <- read_excel("matrix_proteomico.xlsx")
+
+prot_raw <- as.data.frame(prot_data)
+
+rownames(prot_raw) <- prot_raw[, 1] 
+
+columnas_muestras <- grep("Muestra", colnames(prot_raw))
+prot_matrix <- prot_raw[, columnas_muestras]
+
+print(paste("Proteínas detectadas:", nrow(prot_matrix)))
+print(paste("Muestras detectadas:", ncol(prot_matrix)))
+head(prot_matrix[, 1:3]) 
+
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+
+
+prot_matrix <- prot_matrix[, rownames(metadata)]
+
+total_NAs <- sum(is.na(prot_matrix))
+print(paste("Total de NAs en la matriz de proteínas:", total_NAs))
+
+
+X_prot <- t(prot_matrix)
+
+
+print("Resumen de valores de abundancia proteica:")
+summary(as.vector(X_prot))[c("Min.", "Max.", "Median")]
+
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+
+porcentaje_NAs <- apply(prot_matrix, 1, function(x) sum(is.na(x)) / length(x))
+
+
+prot_filtrada <- prot_matrix[porcentaje_NAs < 0.30, ]
+print(paste("Proteínas tras filtrar NAs:", nrow(prot_filtrada)))
+
+
+prot_log2 <- log2(prot_filtrada)
+
+
+X_prot_final <- apply(prot_log2, 1, function(x) {
+  minimo_prot <- min(x, na.rm = TRUE)
+  x[is.na(x)] <- minimo_prot
+  return(x)
+})
+
+
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+
+library(SummarizedExperiment)
+library(mixOmics)
+
+varianzas <- apply(assay(vsd), 1, var)
+top_genes <- names(sort(varianzas, decreasing = TRUE)[1:3000])
+X_rna <- t(assay(vsd)[top_genes, ])
+
+X_prot_final <- X_prot_final[rownames(X_rna), ]
+
+if(all(rownames(X_rna) == rownames(X_prot_final))){
+  print("¡Alineación perfecta! Listos para MixOmics.")
+} else {
+  print("Error: Las muestras no coinciden.")
+}
+
+X <- list(mRNA = X_rna, 
+          Proteinas = X_prot_final)
+
+Y <- metadata$Temporada
+
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+
+design <- matrix(0.1, ncol = length(X), nrow = length(X), 
+                 dimnames = list(names(X), names(X)))
+diag(design) <- 0
+
+modelo_diablo <- block.plsda(X = X, Y = Y, ncomp = 2, design = design)
+
+plotIndiv(modelo_diablo, 
+          ind.names = FALSE, 
+          legend = TRUE, 
+          title = 'DIABLO: Transcriptómica y Proteómica por Temporada')
+
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+
+plotDiablo(modelo_diablo, ncomp = 1)
+
+
+plotArrow(modelo_diablo, ind.names = FALSE, legend = TRUE, 
+          title = 'Acuerdo por muestra: ARN vs Proteínas')
+
+
+circosPlot(modelo_diablo, cutoff = 0.7, line = TRUE, 
+           color.blocks = c('darkorchid', 'lightgreen'),
+           color.cor = c("chocolate3", "grey20"), size.variables = 0.5)
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+
+biomarcadores_rna <- selectVar(modelo_diablo, block = 'mRNA', comp = 1)$mRNA$value
+biomarcadores_prot <- selectVar(modelo_diablo, block = 'Proteinas', comp = 1)$Proteinas$value
+
+top_genes <- biomarcadores_rna[order(abs(biomarcadores_rna$value.var), decreasing = TRUE), , drop = FALSE]
+top_proteinas <- biomarcadores_prot[order(abs(biomarcadores_prot$value.var), decreasing = TRUE), , drop = FALSE]
+
+print("Top 15 Genes que definen la Temporada:")
+head(top_genes, 15)
+
+print("Top 15 Proteínas que definen la Temporada:")
+head(top_proteinas, 15)
+
+write.csv(top_genes, file = "Top_Biomarcadores_RNA_DIABLO.csv")
+write.csv(top_proteinas, file = "Top_Biomarcadores_Proteinas_DIABLO.csv")
+
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+
+plotLoadings(modelo_diablo, comp = 1, cont = 'max', method = 'median', ndisplay = 20,
+             title = 'Top 20 Biomarcadores (Comp 1)')
+
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+
+list.keepX <- list(mRNA = c(30, 30), 
+                   Proteinas = c(30, 30))
+
+modelo_esparso <- block.splsda(X = X, Y = Y, ncomp = 2, 
+                               keepX = list.keepX, design = design)
+
+graphics.off()
+
+png("4_CircosPlot_Limpio.png", width = 1000, height = 1000, res = 120)
+circosPlot(modelo_esparso, cutoff = 0.7, line = TRUE, 
+           color.blocks = c('darkorchid', 'lightgreen'),
+           color.cor = c("chocolate3", "grey20"), 
+           size.variables = 0.6, size.labels = 0.8)
+dev.off()
+
+print("¡Modelo esparso ejecutado y CircosPlot guardado!")
+
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+
+list.keepX <- list(mRNA = c(30, 30), Proteinas = c(30, 30))
+modelo_esparso <- block.splsda(X = X, Y = Y, ncomp = 2, keepX = list.keepX, design = design)
+
+biomarcadores_arn <- selectVar(modelo_esparso, comp = 1, block = "mRNA")$mRNA$value
+biomarcadores_prot <- selectVar(modelo_esparso, comp = 1, block = "Proteinas")$Proteinas$value
+
+write.csv(biomarcadores_arn, "Tabla_Elite_30_Genes.csv")
+write.csv(biomarcadores_prot, "Tabla_Elite_30_Proteinas.csv")
+
+print("¡Tablas de biomarcadores guardadas!")
+
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+
+
+png("5_Heatmap_Multiomico_CIM.png", width = 1200, height = 1000, res = 100)
+
+cimDiablo(modelo_esparso,
+          margin = c(10, 20), 
+          legend.position = "right",
+          size.legend = 1.2,
+          title = "Heatmap Integrado: Transcriptómica y Proteómica")
+
+dev.off()
+print("¡Heatmap multiómico guardado!")
+
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+
+
+png("6_Validacion_AUROC.png", width = 800, height = 800, res = 100)
+auroc(modelo_esparso, roc.block = "mRNA", roc.comp = 1)
+dev.off()
+
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+
+library(mixOmics)
+
+X_3b <- list(mRNA = X_rna, 
+             Proteinas = X_prot_final, 
+             Ambiente = vars_amb)
+
+Y <- metadata_completa$Temporada
+
+design_3b <- matrix(0.1, ncol = length(X_3b), nrow = length(X_3b), 
+                    dimnames = list(names(X_3b), names(X_3b)))
+diag(design_3b) <- 0
+
+
+num_vars_amb <- ncol(vars_amb) 
+list.keepX_3b <- list(mRNA = c(20, 20), 
+                      Proteinas = c(20, 20), 
+                      Ambiente = c(num_vars_amb, num_vars_amb))
+
+modelo_3b <- block.splsda(X = X_3b, Y = Y, ncomp = 2, 
+                          keepX = list.keepX_3b, design = design_3b)
+
+png("10_Correlacion_3Bloques_plotDiablo.png", width = 800, height = 800, res = 100)
+plotDiablo(modelo_3b, ncomp = 1)
+dev.off()
+
+png("11_CircosPlot_3Bloques.png", width = 1200, height = 1200, res = 120)
+circosPlot(modelo_3b, cutoff = 0.65, line = TRUE, 
+           color.blocks = c('darkorchid', 'lightgreen', 'orange'),
+           color.cor = c("chocolate3", "grey20"), 
+           size.variables = 0.6)
+dev.off()
+
+print("¡Modelo de 3 Bloques completado y gráficos guardados!")
+
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+
+
+library(mixOmics)
+
+X_centro <- list(mRNA = X_rna, 
+                 Proteinas = X_prot_final)
+
+Y_centro <- metadata_completa$Centro 
+
+print("Centros detectados en el estudio:")
+print(table(Y_centro))
+
+design_centro <- matrix(0.1, ncol = length(X_centro), nrow = length(X_centro), 
+                        dimnames = list(names(X_centro), names(X_centro)))
+diag(design_centro) <- 0
+
+list.keepX_centro <- list(mRNA = c(30, 30), 
+                          Proteinas = c(30, 30))
+
+modelo_centro <- block.splsda(X = X_centro, Y = Y_centro, ncomp = 2, 
+                              keepX = list.keepX_centro, design = design_centro)
+
+png("13_DIABLO_Separacion_por_Centro.png", width = 900, height = 500, res = 100)
+plotIndiv(modelo_centro, 
+          ind.names = FALSE, 
+          legend = TRUE, 
+          title = 'DIABLO: Integración Ómica según Centro de Cultivo')
+dev.off()
+
+print("¡Modelo por Centro completado! Gráfico 13 guardado en tu carpeta.")
+
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+
+graphics.off()
+
+png("14_Biomarcadores_Centro_ARN.png", width = 800, height = 600, res = 100)
+plotLoadings(modelo_centro, block = 'mRNA', comp = 1, cont = 'max', method = 'median', 
+             ndisplay = 20, title = 'Top 20 Genes por Centro')
+dev.off()
+
+png("15_Biomarcadores_Centro_Prot.png", width = 800, height = 600, res = 100)
+plotLoadings(modelo_centro, block = 'Proteinas', comp = 1, cont = 'max', method = 'median', 
+             ndisplay = 20, title = 'Top 20 Proteínas por Centro')
+dev.off()
+
+print("¡Gráficos de biomarcadores por centro generados!")
+
+
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+#regresion Temperatura
+
+library(mixOmics)
+
+X_reg <- list(mRNA = X_rna, 
+              Proteinas = X_prot_final)
+
+Y_temp <- as.matrix(vars_amb[, "Temperatura_Promedio", drop = FALSE])
+
+design_reg <- matrix(0.1, ncol = length(X_reg), nrow = length(X_reg), 
+                     dimnames = list(names(X_reg), names(X_reg)))
+diag(design_reg) <- 0
+
+list.keepX_reg <- list(mRNA = c(20, 20), 
+                       Proteinas = c(20, 20))
+
+modelo_temp <- block.spls(X = X_reg, Y = Y_temp, ncomp = 2, 
+                          keepX = list.keepX_reg, design = design_reg)
+
+png("19_Regresion_Temperatura_Promedio.png", width = 800, height = 600, res = 100)
+plotIndiv(modelo_temp, rep.space = "XY-variate", 
+          group = metadata_completa$Temporada, legend = TRUE, 
+          title = 'Predicción Molecular de la Temperatura_Promedio del Agua')
+dev.off()
+
+print("¡Modelo de regresión completado! Revisa el gráfico 19 en tu carpeta.")
